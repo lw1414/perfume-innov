@@ -13,14 +13,14 @@
 MQTTHandler mqttHandler;
 
 // === Shift Register (for relays) ===
-ShiftRegister OUTPUT_CONTROL_PORT(OUT_CTRL_DIN, OUT_CTRL_CS, OUT_CTRL_CLK, 1);
+//ShiftRegister OUTPUT_CONTROL_PORT(OUT_CTRL_DIN, OUT_CTRL_CS, OUT_CTRL_CLK, 1);
 
 // === Button debounce ===
 unsigned long lastButtonPress[4] = { 0, 0, 0, 0 };
 const unsigned long debounceDelay = 300;  // ms
 
 // === Relay Handler ===
-RelayHandler relayHandler(OUTPUT_CONTROL_PORT);
+//RelayHandler relayHandler(OUTPUT_CONTROL_PORT);
 
 void setup() {
   Serial.begin(115200);
@@ -66,12 +66,6 @@ void setup() {
   }
   if (networkInfo.wifiConnected) {
     Serial.println("\n[WiFi] Connected.");
-    // === Load configs from EEPROM ===
-    for (int i = 0; i < 4; i++) {
-      dispenseStatus[i] = loadDispenseStatusFromEEPROM(i + 1);
-      relayDurations[i] = loadRelayDurationFromEEPROM(i + 1);
-    }
-    relayHandler.update();  // show initial dispense status
   } else {
     Serial.println("\n[WiFi] Not connected (timed out). MQTT will be attempted later.");
   }

@@ -2,6 +2,7 @@
 #include "NetworkManager.h"
 #include "SystemConfig.h"
 #include <ArduinoJson.h>
+#include "RelayHandler.h"
 
 TaskHandle_t mqttMonitorTaskHandle;
 
@@ -68,18 +69,47 @@ void MQTTMonitor_Routine(void *pvParameters) {
 
 
 
+  // Track previous MQTT state
+  static bool mqttWasOK = true;
+
   for (;;) {
     if (WiFi.status() == WL_CONNECTED) {
-      mqttHandler.checkConnectivity();
 
-      // === Message Handling ===
-      if (mqttHandler.messageAvailable()) {
+      bool mqttOK = mqttHandler.checkConnectivity();
+
+      // =========================================
+      // MQTT EDGE DETECTION: CONNECTED → LOST
+      // =========================================
+      if (!mqttOK && mqttWasOK) {
+
+        // == MQTT lost → force safe state ==
+        for (int i = 0; i < 4; i++) {
+          dispenseStatus[i] = true;  // disable all relays
+        }
+
+        relayHandler.update();
+        Serial.println("[MQTTMonitor] MQTT LOST → Relays DISABLED");
+      }
+
+      // =========================================
+      // NORMAL MQTT MESSAGE HANDLING (only if OK)
+      // =========================================
+      if (mqttOK && mqttHandler.messageAvailable()) {
+
+        // === Load configs from EEPROM ===
+        for (int i = 0; i < 4; i++) {
+          dispenseStatus[i] = loadDispenseStatusFromEEPROM(i + 1);
+          relayDurations[i] = loadRelayDurationFromEEPROM(i + 1);
+        }
+
+        relayHandler.update();  // show initial dispense status
+
         String topic = mqttHandler.getMessageTopic();
         String payload = mqttHandler.getMessagePayload();
 
-        Serial.printf("[MQTTMonitor] Received → %s : %s\n", topic.c_str(), payload.c_str());
+        Serial.printf("[MQTTMonitor] Received → %s : %s\n",
+                      topic.c_str(), payload.c_str());
 
-        // ✅ Fixed variable names
         if (topic.equals("PerfumeDispenser/Settings")) {
           handleSettingsMessage(payload);
         } else {
@@ -89,17 +119,23 @@ void MQTTMonitor_Routine(void *pvParameters) {
         mqttHandler.clearMessageFlag();
       }
 
-      // === Watchdog heartbeat ===
+      // =========================================
+      // WATCHDOG HEARTBEAT
+      // =========================================
       unsigned long currentMillis = millis();
       if (currentMillis - lastWatchdogUpdate >= watchdogInterval) {
         publishWatchdogHeartbeat();
         lastWatchdogUpdate = currentMillis;
       }
+
+      // Update edge tracker
+      mqttWasOK = mqttOK;
     }
 
     vTaskDelay(2000 / portTICK_PERIOD_MS);
   }
 }
+
 
 // === Start Task ===
 void startMQTTMonitorTask() {
@@ -211,7 +247,7 @@ void publishWatchdogHeartbeat() {
   delay(10);
   digitalWrite(WDT_PIN, LOW);
 
-  
+
   mqttHandler.checkConnectivity();
   mqttHandler.startup("PerfumeDispenser/DeviceStatus", "Online", true);
   // 2️⃣ Publish alive status
