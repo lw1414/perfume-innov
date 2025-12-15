@@ -43,8 +43,10 @@ void setup() {
   // === Pin setup ===
   pinMode(BUTTON1_PIN, INPUT_PULLUP);
   pinMode(BUTTON2_PIN, INPUT_PULLUP);
+
   pinMode(BUTTON3_PIN, INPUT);
   pinMode(BUTTON4_PIN, INPUT);
+
 
   Serial.println("========================================");
   Serial.println("   Coin + 4-Button Relay System Started ");

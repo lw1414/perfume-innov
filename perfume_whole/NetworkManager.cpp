@@ -1,67 +1,84 @@
 #include "NetworkManager.h"
 #include "SystemConfig.h"
 
-TaskHandle_t xTaskHandle_NetworkMonitor = NULL;  // Define the task handle
+TaskHandle_t xTaskHandle_NetworkMonitor = NULL;
 NetworkInfo_t networkInfo = { false, "", "", 0, false };
-
 
 void startNetworkMonitorTask() {
   xTaskCreatePinnedToCore(
-    NetworkMonitorTask,           // Task function
-    "Network Monitor",            // Task name
-    4096,                         // Stack size
-    NULL,                         // Task parameters
-    1,                            // Task priority
-    &xTaskHandle_NetworkMonitor,  // Task handle
-    1                             // Core ID
+    NetworkMonitorTask,
+    "Network Monitor",
+    4096,
+    NULL,
+    1,
+    &xTaskHandle_NetworkMonitor,
+    1
   );
 }
 
 void NetworkMonitorTask(void* pvParameters) {
-  Serial.print("Network Monitoring running on core ");
+  Serial.print("[NetworkManager] Running on core ");
   Serial.println(xPortGetCoreID());
 
   vTaskDelay(1000);
+
   WiFiManager wm;
 
-  // reset settings - wipe stored credentials for testing
-  // wm.resetSettings();
-
-  bool res;
-  wm.setConfigPortalTimeout(240);
+  // -------------------------------
+  // WiFiManager configuration
+  // -------------------------------
+  wm.setConfigPortalTimeout(240);   // 4 minutes
   wm.setConnectTimeout(15);
   wm.setWiFiAutoReconnect(true);
-  
 
+  // -------------------------------
+  // Load WiFi creds from EEPROM
+  // -------------------------------
   WiFiCreds_t creds = loadWiFiCredsFromEEPROM();
   if (strlen(creds.ssid) > 0) {
     wm.preloadWiFi(creds.ssid, creds.password);
+    Serial.println("[NetworkManager] EEPROM WiFi credentials preloaded");
   }
 
-  res = wm.autoConnect(deviceESN, "innovation");
-
+  // -------------------------------
+  // Start WiFiManager
+  // -------------------------------
+  bool res = wm.autoConnect(deviceESN, "innovation");
 
   if (!res) {
-#ifdef DEBUG_WIFI
-    Serial.println("Failed to connect \r\n Restarting device now . . . ");
-#endif
+    Serial.println("[NetworkManager] WiFi connect failed → rebooting");
     ESP.restart();
-  } else {
-#ifdef DEBUG_WIFI
-    Serial.println("Connected to: " + WiFi.SSID());
-#endif
-
-    networkInfo.wifiConnected = true;
-    networkInfo.SSID = wm.getWiFiSSID(true);
-    networkInfo.password = wm.getWiFiPass(true);
-    networkInfo.RSSI = WiFi.RSSI();
   }
 
+  // -------------------------------
+  // Connected successfully
+  // -------------------------------
+  Serial.print("[NetworkManager] Connected to: ");
+  Serial.println(WiFi.SSID());
+
+  networkInfo.wifiConnected = true;
+  networkInfo.SSID = WiFi.SSID();
+  networkInfo.password = WiFi.psk();
+  networkInfo.RSSI = WiFi.RSSI();
+
+  // -------------------------------
+  // SAVE CREDENTIALS TO EEPROM
+  // -------------------------------
+  WiFiCreds_t newCreds;
+  memset(&newCreds, 0, sizeof(newCreds));
+
+  strncpy(newCreds.ssid, WiFi.SSID().c_str(), sizeof(newCreds.ssid) - 1);
+  strncpy(newCreds.password, WiFi.psk().c_str(), sizeof(newCreds.password) - 1);
+
+  saveWiFiCredsToEEPROM(newCreds);
+  Serial.println("[NetworkManager] WiFi credentials saved to EEPROM");
+
+  // -------------------------------
+  // Monitor WiFi connection
+  // -------------------------------
   for (;;) {
-
-    networkInfo.wifiConnected = WiFi.status() == WL_CONNECTED ? true : false;
+    networkInfo.wifiConnected = (WiFi.status() == WL_CONNECTED);
     networkInfo.RSSI = WiFi.RSSI();
-
-    vTaskDelay(1);  // Keep the task alive
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
   }
 }
